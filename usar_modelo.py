@@ -1,173 +1,119 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Script para usar o modelo treinado e fazer predições
-Útil para testar antes de integrar com o LabVIEW
+Script para usar o modelo SVM de classificação de potência.
+Compatível com Python 3.6+
 
-Autor: APS 1 - Projeto de Aprendizado de Máquina
+Uso:
+    python usar_modelo.py <corrente_max> <corrente_min> <corrente_media>
+
+Exemplo:
+    python usar_modelo.py 1.80 -0.03 0.67
+
+Para integração com LabVIEW:
+    - LabVIEW chama este script via System Exec.vi
+    - Passa os 3 valores de corrente como argumentos
+    - Captura a saída (classe e probabilidades)
 """
 
-import pandas as pd
+import sys
 import joblib
-import warnings
-warnings.filterwarnings('ignore')
+import pandas as pd
 
 
-def classificar_potencia(corrente_max, corrente_min, corrente_media, modelo_path="modelo_potencia.sav"):
+def prever_potencia(corrente_max, corrente_min, corrente_media):
     """
-    Classifica o regime de potência baseado em medições de corrente
-    
+    Carrega o modelo e faz predição de regime de potência.
+
     Parâmetros:
     -----------
     corrente_max : float
-        Corrente máxima observada (A)
+        Corrente máxima medida (Amperes)
     corrente_min : float
-        Corrente mínima observada (A)
+        Corrente mínima medida (Amperes)
     corrente_media : float
-        Corrente média calculada (A)
-    modelo_path : str
-        Caminho para o arquivo do modelo (.sav)
-    
+        Corrente média medida (Amperes)
+
     Retorna:
     --------
-    resultado : dict
-        Dicionário com classe prevista e probabilidades
+    classe : int
+        0 = Baixa Potência, 1 = Alta Potência
+    prob_baixa : float
+        Probabilidade de Baixa Potência (0-1)
+    prob_alta : float
+        Probabilidade de Alta Potência (0-1)
     """
-    
     # Carregar modelo
-    modelo = joblib.load(modelo_path)
-    
-    # Preparar dados de entrada
-    dados = {
-        'corrente_max_A': corrente_max,
-        'corrente_min_A': corrente_min,
-        'corrente_media_A': corrente_media
-    }
-    
-    # Criar DataFrame
-    df = pd.DataFrame([dados])
-    
-    # Calcular atributos derivados (mesma ordem do treinamento)
-    df['amplitude_corrente'] = df['corrente_max_A'] - df['corrente_min_A']
-    df['razao_max_media'] = df['corrente_max_A'] / (df['corrente_media_A'] + 1e-6)
-    
-    # Ordenar colunas (importante!)
-    df = df[['corrente_max_A', 'corrente_min_A', 'corrente_media_A', 
-             'amplitude_corrente', 'razao_max_media']]
-    
-    # Fazer predição
-    classe = modelo.predict(df)[0]
-    probabilidades = modelo.predict_proba(df)[0]
-    
-    # Mapear classe para nome
-    classes_map = {0: "Baixa Potência", 1: "Alta Potência"}
-    
-    resultado = {
-        'classe_numerica': int(classe),
-        'classe_nome': classes_map[classe],
-        'prob_baixa': float(probabilidades[0]),
-        'prob_alta': float(probabilidades[1]),
-        'confianca': float(max(probabilidades))
-    }
-    
-    return resultado
+    modelo = joblib.load("modelo_svm_potencia.sav")
 
-
-def classificar_lote(dados_csv, modelo_path="modelo_potencia.sav", output_csv="predicoes.csv"):
-    """
-    Classifica múltiplas amostras de um arquivo CSV
-    
-    Parâmetros:
-    -----------
-    dados_csv : str
-        Caminho para CSV com colunas: corrente_max_A, corrente_min_A, corrente_media_A
-    modelo_path : str
-        Caminho para o arquivo do modelo
-    output_csv : str
-        Caminho para salvar resultados
-    """
-    
-    # Carregar dados
-    df = pd.read_csv(dados_csv)
-    
-    # Carregar modelo
-    modelo = joblib.load(modelo_path)
-    
     # Calcular atributos derivados
-    df['amplitude_corrente'] = df['corrente_max_A'] - df['corrente_min_A']
-    df['razao_max_media'] = df['corrente_max_A'] / (df['corrente_media_A'] + 1e-6)
-    
-    # Preparar features
-    X = df[['corrente_max_A', 'corrente_min_A', 'corrente_media_A', 
-            'amplitude_corrente', 'razao_max_media']]
-    
-    # Fazer predições
-    predicoes = modelo.predict(X)
-    probabilidades = modelo.predict_proba(X)
-    
-    # Adicionar resultados ao DataFrame
-    df['predicao_classe'] = predicoes
-    df['predicao_nome'] = ['Baixa Potência' if p == 0 else 'Alta Potência' for p in predicoes]
-    df['prob_baixa'] = probabilidades[:, 0]
-    df['prob_alta'] = probabilidades[:, 1]
-    df['confianca'] = probabilidades.max(axis=1)
-    
-    # Salvar resultados
-    df.to_csv(output_csv, index=False)
-    print(f"Predições salvas em: {output_csv}")
-    
-    return df
+    amplitude = corrente_max - corrente_min
+    razao = corrente_max / (corrente_media + 1e-6)
 
-
-# ============================================================================
-# EXEMPLO DE USO
-# ============================================================================
-if __name__ == "__main__":
-    print("="*70)
-    print("TESTE DO MODELO DE CLASSIFICAÇÃO DE POTÊNCIA")
-    print("="*70)
-    
-    # Exemplo 1: Predição única
-    print("\n[Teste 1] Predição única:")
-    print("-" * 70)
-    
-    resultado = classificar_potencia(
-        corrente_max=1.80,
-        corrente_min=-0.03,
-        corrente_media=0.67
+    # Criar DataFrame com ordem correta das colunas
+    entrada = pd.DataFrame(
+        [[corrente_max, corrente_min, corrente_media, amplitude, razao]],
+        columns=[
+            "corrente_max_A",
+            "corrente_min_A",
+            "corrente_media_A",
+            "amplitude_corrente",
+            "razao_max_media",
+        ],
     )
-    
-    print(f"Entrada:")
-    print(f"   Corrente Máxima: 1.80 A")
-    print(f"   Corrente Mínima: -0.03 A")
-    print(f"   Corrente Média: 0.67 A")
-    print(f"\nResultado:")
-    print(f"   Classe: {resultado['classe_nome']} ({resultado['classe_numerica']})")
-    print(f"   Confiança: {resultado['confianca']*100:.1f}%")
-    print(f"   Probabilidades:")
-    print(f"      - Baixa Potência: {resultado['prob_baixa']*100:.1f}%")
-    print(f"      - Alta Potência: {resultado['prob_alta']*100:.1f}%")
-    
-    # Exemplo 2: Mais testes
-    print("\n" + "-" * 70)
-    print("[Teste 2] Múltiplas predições:")
-    print("-" * 70)
-    
-    testes = [
-        (1.80, -0.03, 0.67),   # Teste 1
-        (10.70, -0.03, 0.67),  # Teste 2
-        (1.76, -0.03, 0.66),   # Teste 3
-    ]
-    
-    for i, (c_max, c_min, c_med) in enumerate(testes, 1):
-        resultado = classificar_potencia(c_max, c_min, c_med)
-        print(f"\nTeste {i}: max={c_max}, min={c_min}, med={c_med}")
-        print(f"   → {resultado['classe_nome']} (confiança: {resultado['confianca']*100:.1f}%)")
-    
-    print("\n" + "="*70)
-    print("TESTES CONCLUÍDOS!")
-    print("="*70)
-    print("\nPara usar no LabVIEW:")
-    print("   1. Chame a função classificar_potencia() com os 3 valores de corrente")
-    print("   2. O retorno inclui a classe prevista e probabilidades")
-    print("   3. Use 'classe_numerica' para decisões (0 ou 1)")
-    print("   4. Use 'confianca' para avaliar certeza da predição")
-    print("="*70)
+
+    # Predição
+    classe = int(modelo.predict(entrada)[0])
+    probabilidades = modelo.predict_proba(entrada)[0]
+
+    prob_baixa = float(probabilidades[0])
+    prob_alta = float(probabilidades[1])
+
+    return classe, prob_baixa, prob_alta
+
+
+def main():
+    """Função principal para uso via linha de comando."""
+
+    # Verificar argumentos
+    if len(sys.argv) != 4:
+        print("ERRO: Número incorreto de argumentos!")
+        print("\nUso:")
+        print("  python usar_modelo.py <corrente_max> <corrente_min> <corrente_media>")
+        print("\nExemplo:")
+        print("  python usar_modelo.py 1.80 -0.03 0.67")
+        sys.exit(1)
+
+    try:
+        # Ler argumentos
+        corrente_max = float(sys.argv[1])
+        corrente_min = float(sys.argv[2])
+        corrente_media = float(sys.argv[3])
+
+        # Fazer predição
+        classe, prob_baixa, prob_alta = prever_potencia(
+            corrente_max, corrente_min, corrente_media
+        )
+
+        # Saída formatada para LabVIEW
+        # Formato: CLASSE|PROB_BAIXA|PROB_ALTA|NOME_CLASSE
+        nome_classe = "Baixa Potência" if classe == 0 else "Alta Potência"
+
+        print(f"{classe}|{prob_baixa:.6f}|{prob_alta:.6f}|{nome_classe}")
+
+    except FileNotFoundError:
+        print("ERRO: Arquivo 'modelo_svm_potencia.sav' não encontrado!")
+        print("Execute o notebook primeiro para gerar o modelo.")
+        sys.exit(1)
+
+    except ValueError as e:
+        print(f"ERRO: Valores inválidos! {e}")
+        sys.exit(1)
+
+    except Exception as e:
+        print(f"ERRO: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
